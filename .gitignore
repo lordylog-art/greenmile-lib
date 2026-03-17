@@ -1,4 +1,5 @@
 ﻿node_modules/
 .clasp.json
 .env
+debug-sheet-export.js
 dist/

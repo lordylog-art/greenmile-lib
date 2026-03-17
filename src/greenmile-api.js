@@ -199,6 +199,7 @@
 
     function orderRestrictionsFilters() {
         return [
+            '*',
             'id',
             'number',
             'lineItems.sku.id',
@@ -230,6 +231,85 @@
             'lineItems.pickupReasonCode.description',
             'lineItems.lineItemID'
         ];
+    }
+
+    function extractRows(data) {
+        return Array.isArray(data) ? data : (data && (data.content || data.rows || data.items) || []);
+    }
+
+    function firstRow(data) {
+        return extractRows(data)[0] || null;
+    }
+
+    function firstDefined() {
+        for (var i = 0; i < arguments.length; i += 1) {
+            var value = arguments[i];
+            if (value !== undefined && value !== null && value !== '') {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    function normalizeStopsFromRoute(summaryRow, routeDetails) {
+        var routeStops =
+            (routeDetails && (routeDetails.stopView || routeDetails.stopViews)) ||
+            (summaryRow && (summaryRow.stopView || summaryRow.stopViews)) ||
+            [];
+
+        return routeStops.map(function (item) {
+            if (item && item.stop) {
+                return item.stop;
+            }
+
+            return item;
+        });
+    }
+
+    function buildStopContext(stop, detail) {
+        var location = firstDefined(
+            detail && detail.location,
+            stop && stop.location,
+            detail && detail.stop && detail.stop.location,
+            stop && stop.customer,
+            detail && detail.customer
+        ) || {};
+
+        var locationId = firstDefined(
+            location.id,
+            stop && stop.locationId,
+            detail && detail.locationId
+        );
+
+        var locationKey = firstDefined(
+            location.key,
+            location.alternativeKey,
+            stop && stop.locationKey,
+            detail && detail.locationKey,
+            stop && stop.key,
+            detail && detail.stop && detail.stop.key
+        );
+
+        var locationName = firstDefined(
+            location.description,
+            location.name,
+            stop && stop.description,
+            detail && detail.description
+        );
+
+        return {
+            location: location,
+            locationId: locationId,
+            locationKey: locationKey,
+            locationName: locationName,
+            signatureTarget: firstDefined(
+                locationKey,
+                stop && stop.key,
+                detail && detail.stop && detail.stop.key,
+                stop && stop.id
+            )
+        };
     }
 
     function searchRouteSummary(options) {
@@ -328,7 +408,8 @@
         return getRouteRestrictions({
             attr: 'id',
             value: routeId,
-            matchMode: 'EXACT'
+            matchMode: 'EXACT',
+            includeMatchMode: false
         });
     }
 
@@ -450,6 +531,77 @@
         return filtradas.slice(0, quantidade);
     }
 
+    function getRouteBundleByKey(routeKey, options) {
+        if (!routeKey) throw new Error('Informe routeKey.');
+
+        options = options || {};
+
+        var includeStopDetails = options.includeStopDetails !== false;
+        var includeOrders = options.includeOrders !== false;
+        var includeSignatures = !!options.includeSignatures;
+        var maxResults = options.maxResults || 1;
+
+        var summaryResponse = routeViewSummary(routeKey, maxResults);
+        var summaryRow = firstRow(summaryResponse);
+
+        if (!summaryRow || !summaryRow.route || !summaryRow.route.id) {
+            throw new Error('Rota não encontrada para a route.key informada.');
+        }
+
+        var routeId = summaryRow.route.id;
+        var routeDetailsResponse = getRouteRestrictionsByRouteId(routeId);
+        var routeDetails = firstRow(routeDetailsResponse);
+        var stops = normalizeStopsFromRoute(summaryRow, routeDetails);
+
+        var enrichedStops = stops.map(function (stop) {
+            var stopId = stop && stop.id ? stop.id : null;
+            var stopKey = stop && stop.key ? stop.key : null;
+            var result = {
+                stop: stop
+            };
+
+            if (!stopId) {
+                return result;
+            }
+
+            result.stopId = stopId;
+            result.stopKey = stopKey;
+
+            if (includeStopDetails) {
+                result.detail = getStopDetail(stopId);
+            }
+
+            result.context = buildStopContext(stop, result.detail);
+            result.location = result.context.location;
+            result.locationId = result.context.locationId;
+            result.locationKey = result.context.locationKey;
+            result.locationName = result.context.locationName;
+            result.signatureTarget = result.context.signatureTarget;
+
+            if (includeOrders) {
+                result.orders = getOrdersByStopId(stopId);
+            }
+
+            if (includeSignatures) {
+                try {
+                    result.signature = getRouteStopSignature(routeId, result.signatureTarget);
+                } catch (err) {
+                    result.signatureError = err && err.message ? err.message : String(err);
+                }
+            }
+
+            return result;
+        });
+
+        return {
+            routeKey: summaryRow.route.key,
+            routeId: routeId,
+            summary: summaryRow,
+            routeDetails: routeDetails,
+            stops: enrichedStops
+        };
+    }
+
     return {
         init: init,
         initFromProperties: initFromProperties,
@@ -463,6 +615,7 @@
         searchRoutes: searchRoutes,
         searchRouteSummary: searchRouteSummary,
         routeViewSummary: routeViewSummary,
+        getRouteBundleByKey: getRouteBundleByKey,
         getRandomRoutesByPrefix: getRandomRoutesByPrefix,
 
         getRouteRestrictions: getRouteRestrictions,
