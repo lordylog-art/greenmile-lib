@@ -4,7 +4,10 @@
         module: 'LIVE',
         build: '1705315',
         version: '26.0130',
-        defaultAccept: 'application/json, text/plain, */*'
+        defaultAccept: 'application/json, text/plain, */*',
+        batchChunkSize: 20,
+        batchSleepMs: 100,
+        batchMaxRetries: 3
     };
 
     function init(username, password) {
@@ -28,11 +31,36 @@
         if (version) CONFIG.version = String(version);
     }
 
+    function setBatchOptions(chunkSize, sleepMs) {
+        if (chunkSize !== undefined && chunkSize !== null) {
+            CONFIG.batchChunkSize = Math.max(1, Number(chunkSize) || 1);
+        }
+
+        if (sleepMs !== undefined && sleepMs !== null) {
+            CONFIG.batchSleepMs = Math.max(0, Number(sleepMs) || 0);
+        }
+    }
+
+    function shouldRetryBatchError_(err) {
+        var message = err && err.message ? String(err.message) : String(err || '');
+        return /Service invoked too many times/i.test(message) ||
+            /Bandwidth quota exceeded/i.test(message) ||
+            /Try Utilities\.sleep/i.test(message);
+    }
+
     function getConfig() {
         return JSON.parse(JSON.stringify(CONFIG));
     }
 
     function request(path, options) {
+        options = options || {};
+
+        var fetchRequest = buildFetchRequest(path, options);
+        var response = UrlFetchApp.fetch(fetchRequest.url, fetchRequest.options);
+        return parseResponse(path, response);
+    }
+
+    function buildFetchRequest(path, options) {
         options = options || {};
 
         var auth = GreenmileAuth.getAuth();
@@ -73,7 +101,14 @@
                 typeof payload === 'string' ? payload : JSON.stringify(payload);
         }
 
-        var response = UrlFetchApp.fetch(CONFIG.baseUrl + path, fetchOptions);
+        return {
+            url: CONFIG.baseUrl + path,
+            path: path,
+            options: fetchOptions
+        };
+    }
+
+    function parseResponse(path, response) {
         var status = response.getResponseCode();
         var text = response.getContentText();
 
@@ -86,6 +121,106 @@
         } catch (err) {
             return text;
         }
+    }
+
+    function requestAll(requests) {
+        requests = requests || [];
+
+        if (!requests.length) {
+            Logger.log('⚪ [requestAll] Nenhuma requisicao para executar');
+            return [];
+        }
+
+        var fetchRequests = requests.map(function (item) {
+            var requestOptions = item.options || {};
+            return buildFetchRequest(item.path, requestOptions);
+        });
+
+        var chunkSize = CONFIG.batchChunkSize || 20;
+        var sleepMs = CONFIG.batchSleepMs || 0;
+        var maxRetries = CONFIG.batchMaxRetries || 3;
+        var parsedResponses = [];
+        var totalChunks = Math.ceil(fetchRequests.length / chunkSize);
+
+        Logger.log(
+            '🚀 [requestAll] Inicio | requests=%s | chunkSize=%s | chunks=%s | sleepMs=%s',
+            fetchRequests.length,
+            chunkSize,
+            totalChunks,
+            sleepMs
+        );
+
+        for (var start = 0; start < fetchRequests.length; start += chunkSize) {
+            var chunk = fetchRequests.slice(start, start + chunkSize);
+            var chunkNumber = Math.floor(start / chunkSize) + 1;
+            Logger.log(
+                '📦 [requestAll] Chunk %s/%s | requests=%s | firstPath=%s',
+                chunkNumber,
+                totalChunks,
+                chunk.length,
+                chunk[0] && chunk[0].path ? chunk[0].path : ''
+            );
+
+            var responses;
+            var attempt = 0;
+            while (attempt < maxRetries) {
+                attempt += 1;
+                try {
+                    responses = UrlFetchApp.fetchAll(chunk.map(function (item) {
+                        return {
+                            url: item.url,
+                            method: item.options.method,
+                            muteHttpExceptions: item.options.muteHttpExceptions,
+                            followRedirects: item.options.followRedirects,
+                            headers: item.options.headers,
+                            contentType: item.options.contentType,
+                            payload: item.options.payload
+                        };
+                    }));
+                    break;
+                } catch (err) {
+                    var retryable = shouldRetryBatchError_(err);
+                    Logger.log(
+                        '⚠️ [requestAll] Falha no chunk | chunk=%s/%s | tentativa=%s/%s | retryable=%s | erro=%s',
+                        chunkNumber,
+                        totalChunks,
+                        attempt,
+                        maxRetries,
+                        retryable ? 'sim' : 'nao',
+                        err && err.message ? err.message : String(err)
+                    );
+
+                    if (!retryable || attempt >= maxRetries) {
+                        throw err;
+                    }
+
+                    var backoffMs = sleepMs > 0 ? sleepMs * attempt : 200 * attempt;
+                    Logger.log('⏳ [requestAll] Backoff antes de retry | ms=%s', backoffMs);
+                    Utilities.sleep(backoffMs);
+                }
+            }
+
+            responses.forEach(function (response, index) {
+                parsedResponses.push(parseResponse(chunk[index].path, response));
+            });
+
+            Logger.log(
+                '✅ [requestAll] Chunk %s/%s concluido | acumulado=%s/%s',
+                chunkNumber,
+                totalChunks,
+                parsedResponses.length,
+                fetchRequests.length
+            );
+
+            if (sleepMs > 0 && start + chunkSize < fetchRequests.length) {
+                Logger.log('⏳ [requestAll] Pausa entre chunks | sleepMs=%s', sleepMs);
+                Utilities.sleep(sleepMs);
+            }
+        }
+
+        Logger.log('🏁 [requestAll] Fim | responses=%s', parsedResponses.length);
+
+        return parsedResponses;
     }
 
     function normalizeMatchMode(matchMode) {
@@ -197,6 +332,16 @@
         ];
     }
 
+    function routeRestrictionsLiteFilters() {
+        return [
+            'id',
+            'key',
+            'date',
+            'creationDate',
+            'driverAssignments.driver.key'
+        ];
+    }
+
     function orderRestrictionsFilters() {
         return [
             '*',
@@ -230,6 +375,29 @@
             'lineItems.pickupReasonCode.id',
             'lineItems.pickupReasonCode.description',
             'lineItems.lineItemID'
+        ];
+    }
+
+    function stopViewRestrictionsFilters() {
+        return [
+            'id',
+            '*',
+            'stop.*',
+            'stop.location.*',
+            'stop.location.locationType.*',
+            'stop.stopType.*',
+            'stop.cancelCode.*',
+            'stop.redeliveryStop.*',
+            'stop.redeliveryStop.location.key*',
+            'stop.undeliverableCode.*',
+            'route.origLatitude',
+            'route.origLongitude',
+            'route.destLatitude',
+            'route.destLongitude',
+            'route.origin.*',
+            'route.destination.*',
+            'route.organization.id',
+            'route.proactiveRouteOptConfig'
         ];
     }
 
@@ -413,6 +581,37 @@
         });
     }
 
+    function getRouteRestrictionsByRouteIds(routeIds, filters) {
+        var filteredRouteIds = (routeIds || []).filter(function (routeId) {
+            return !!routeId;
+        });
+
+        return requestAll(filteredRouteIds.map(function (routeId) {
+            var effectiveFilters = filters || routeRestrictionsFilters();
+            var criteriaQuery = {
+                filters: effectiveFilters
+            };
+            var body = {
+                sort: [],
+                criteriaChain: buildSingleFilterCriteria(
+                    'id',
+                    routeId,
+                    'EXACT',
+                    false
+                ).criteriaChain
+            };
+
+            return {
+                path: '/Route/restrictions?criteria=' + encodeURIComponent(JSON.stringify(criteriaQuery)),
+                options: {
+                    method: 'post',
+                    contentType: 'application/json;charset=UTF-8',
+                    payload: body
+                }
+            };
+        }));
+    }
+
     function getStopDetail(stopId) {
         if (!stopId) throw new Error('Informe stopId.');
 
@@ -485,6 +684,126 @@
         });
     }
 
+    function getOrdersByStopIds(stopIds) {
+        var filteredStopIds = (stopIds || []).filter(function (stopId) {
+            return !!stopId;
+        });
+
+        return requestAll(filteredStopIds.map(function (stopId) {
+            var options = {
+                attr: 'stop.id',
+                value: stopId,
+                matchMode: 'EXACT',
+                includeMatchMode: false
+            };
+
+            var attr = options.attr;
+            var value = options.value;
+            var matchMode = options.matchMode || 'EXACT';
+            var filters = options.filters || orderRestrictionsFilters();
+            var sort = options.sort || [];
+            var includeMatchMode = !!options.includeMatchMode;
+            var criteriaQuery = {
+                filters: filters
+            };
+            var body = {
+                sort: sort
+            };
+
+            body.criteriaChain = buildSingleFilterCriteria(
+                attr,
+                value,
+                matchMode,
+                includeMatchMode
+            ).criteriaChain;
+
+            return {
+                path: '/Order/restrictions?criteria=' + encodeURIComponent(JSON.stringify(criteriaQuery)),
+                options: {
+                    method: 'post',
+                    contentType: 'application/json;charset=UTF-8',
+                    payload: body
+                }
+            };
+        }));
+    }
+
+    function getStopDetails(stopIds) {
+        var filteredStopIds = (stopIds || []).filter(function (stopId) {
+            return !!stopId;
+        });
+
+        return requestAll(filteredStopIds.map(function (stopId) {
+            return {
+                path: '/Stop/' + encodeURIComponent(String(stopId)) + '/Detail',
+                options: {
+                    method: 'get',
+                    contentType: 'application/json;charset=utf-8'
+                }
+            };
+        }));
+    }
+
+    function getStopViewsByRouteIds(routeIds, options) {
+        options = options || {};
+
+        var filteredRouteIds = (routeIds || []).filter(function (routeId) {
+            return !!routeId;
+        });
+        var filters = options.filters || stopViewRestrictionsFilters();
+        var including = options.including || ['geofence'];
+        var sort = options.sort || [{ attr: 'stop.plannedSequenceNum', type: 'ASC' }];
+
+        return requestAll(filteredRouteIds.map(function (routeId) {
+            var criteriaQuery = {
+                filters: filters
+            };
+
+            if (including && including.length) {
+                criteriaQuery.including = including;
+            }
+
+            var body = {
+                criteriaChain: buildSingleFilterCriteria(
+                    'route.id',
+                    routeId,
+                    'EXACT',
+                    false
+                ).criteriaChain,
+                sort: sort
+            };
+
+            return {
+                path: '/StopView/restrictions?criteria=' + encodeURIComponent(JSON.stringify(criteriaQuery)),
+                options: {
+                    method: 'post',
+                    contentType: 'application/json;charset=UTF-8',
+                    payload: body
+                }
+            };
+        }));
+    }
+
+    function getRouteStopSignatures(routeId, stopKeysOrIds) {
+        if (!routeId) throw new Error('Informe routeId.');
+
+        var filteredStops = (stopKeysOrIds || []).filter(function (value) {
+            return !!value;
+        });
+
+        return requestAll(filteredStops.map(function (value) {
+            return {
+                path: '/Route/' + encodeURIComponent(String(routeId)) +
+                    '/Stop/' + encodeURIComponent(String(value)) +
+                    '/Signature',
+                options: {
+                    method: 'get',
+                    contentType: 'application/json;charset=utf-8'
+                }
+            };
+        }));
+    }
+
     function getOrdersByNumber(orderNumber, matchMode) {
         if (!orderNumber) throw new Error('Informe orderNumber.');
 
@@ -551,7 +870,19 @@
         var routeId = summaryRow.route.id;
         var routeDetailsResponse = getRouteRestrictionsByRouteId(routeId);
         var routeDetails = firstRow(routeDetailsResponse);
-        var stops = normalizeStopsFromRoute(summaryRow, routeDetails);
+        var stops = [];
+
+        try {
+            stops = extractRows(getStopViewsByRouteIds([routeId])[0]).map(function (item) {
+                return item && item.stop ? item.stop : item;
+            });
+        } catch (err) {
+            Logger.log('⚠️ [RouteBundle] Falha ao buscar StopView completo | routeId=%s | erro=%s', routeId, err && err.message ? err.message : String(err));
+        }
+
+        if (!stops.length) {
+            stops = normalizeStopsFromRoute(summaryRow, routeDetails);
+        }
 
         var enrichedStops = stops.map(function (stop) {
             var stopId = stop && stop.id ? stop.id : null;
@@ -567,31 +898,75 @@
             result.stopId = stopId;
             result.stopKey = stopKey;
 
-            if (includeStopDetails) {
-                result.detail = getStopDetail(stopId);
-            }
-
-            result.context = buildStopContext(stop, result.detail);
-            result.location = result.context.location;
-            result.locationId = result.context.locationId;
-            result.locationKey = result.context.locationKey;
-            result.locationName = result.context.locationName;
-            result.signatureTarget = result.context.signatureTarget;
-
-            if (includeOrders) {
-                result.orders = getOrdersByStopId(stopId);
-            }
-
-            if (includeSignatures) {
-                try {
-                    result.signature = getRouteStopSignature(routeId, result.signatureTarget);
-                } catch (err) {
-                    result.signatureError = err && err.message ? err.message : String(err);
-                }
-            }
-
             return result;
         });
+
+        var stopsWithId = enrichedStops.filter(function (item) {
+            return !!item.stopId;
+        });
+
+        if ((includeStopDetails || includeSignatures) && stopsWithId.length) {
+            var detailResponses = getStopDetails(stopsWithId.map(function (item) {
+                return item.stopId;
+            }));
+
+            stopsWithId.forEach(function (item, index) {
+                item.detail = detailResponses[index];
+            });
+        }
+
+        enrichedStops.forEach(function (item) {
+            if (item.context) return;
+            item.context = buildStopContext(item.stop, item.detail);
+            item.location = item.context.location;
+            item.locationId = item.context.locationId;
+            item.locationKey = item.context.locationKey;
+            item.locationName = item.context.locationName;
+            item.signatureTarget = item.context.signatureTarget;
+        });
+
+        if (includeOrders && stopsWithId.length) {
+            var orderResponses = getOrdersByStopIds(stopsWithId.map(function (item) {
+                return item.stopId;
+            }));
+
+            stopsWithId.forEach(function (item, index) {
+                item.orders = orderResponses[index];
+            });
+        }
+
+        if (includeSignatures && stopsWithId.length) {
+            var signatureTargets = stopsWithId
+                .map(function (item) {
+                    return item.signatureTarget;
+                })
+                .filter(function (value) {
+                    return !!value;
+                });
+
+            if (signatureTargets.length) {
+                try {
+                    var signatureResponses = getRouteStopSignatures(routeId, signatureTargets);
+                    var signatureIndex = 0;
+
+                    stopsWithId.forEach(function (item) {
+                        if (!item.signatureTarget) return;
+                        item.signature = signatureResponses[signatureIndex];
+                        signatureIndex += 1;
+                    });
+                } catch (err) {
+                    stopsWithId.forEach(function (item) {
+                        if (!item.signatureTarget) return;
+
+                        try {
+                            item.signature = getRouteStopSignature(routeId, item.signatureTarget);
+                        } catch (fallbackErr) {
+                            item.signatureError = fallbackErr && fallbackErr.message ? fallbackErr.message : String(fallbackErr);
+                        }
+                    });
+                }
+            }
+        }
 
         return {
             routeKey: summaryRow.route.key,
@@ -607,6 +982,7 @@
         initFromProperties: initFromProperties,
         setBaseUrl: setBaseUrl,
         setClientInfo: setClientInfo,
+        setBatchOptions: setBatchOptions,
         getConfig: getConfig,
         request: request,
 
@@ -621,13 +997,19 @@
         getRouteRestrictions: getRouteRestrictions,
         getRouteRestrictionsByRouteKey: getRouteRestrictionsByRouteKey,
         getRouteRestrictionsByRouteId: getRouteRestrictionsByRouteId,
+        getRouteRestrictionsByRouteIds: getRouteRestrictionsByRouteIds,
 
         getStopDetail: getStopDetail,
+        getStopDetails: getStopDetails,
+        getStopViewsByRouteIds: getStopViewsByRouteIds,
         getRouteStopSignature: getRouteStopSignature,
+        getRouteStopSignatures: getRouteStopSignatures,
 
         getOrderRestrictions: getOrderRestrictions,
         getOrdersByStopId: getOrdersByStopId,
+        getOrdersByStopIds: getOrdersByStopIds,
         getOrdersByNumber: getOrdersByNumber,
-        getOrdersById: getOrdersById
+        getOrdersById: getOrdersById,
+        requestAll: requestAll
     };
 })();
