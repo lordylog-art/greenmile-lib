@@ -152,8 +152,8 @@
             .withSuccessHandler(function (data) { onData(data, requestId); })
             .withFailureHandler(function (err) { onError(err, requestId); });
           return forceRefresh
-            ? runner.dashboardRefreshCycleData(getFilters())
-            : runner.dashboardGetCycleData(getFilters());
+            ? runner.dashboardRefreshCycleDataV2(getFilters())
+            : runner.dashboardGetCycleDataV2(getFilters());
         } catch (err) {
           onError(err, requestId);
           return null;
@@ -182,7 +182,7 @@
         var currentRequestId = requestId || state.activeRequestId;
         if (currentRequestId !== state.activeRequestId) return;
         var message = err && err.message ? err.message : String(err);
-        setHtml('kpiGrid', '<div class="empty-state">Erro ao carregar KPIs.</div>');
+        setHtml('kpiGrid', '<div class="empty-state">Erro ao carregar KPIs: ' + escapeHtml(message) + '</div>');
         setHtml('alerts', '<div class="empty-state">Erro ao carregar: ' + escapeHtml(message) + '</div>');
         setHtml('cycleTable', '<div class="empty-state">Erro ao carregar a tabela detalhada.</div>');
         destroyCharts();
@@ -203,7 +203,7 @@
       function safeRenderChart(id, optionsBuilder) { try { renderChart(id, optionsBuilder()); } catch (err) { setHtml(id, '<div class="empty-state">Erro ao renderizar grafico.</div>'); } }
       function scheduleCharts(data) { if (typeof window.requestAnimationFrame === 'function') { window.requestAnimationFrame(function () { renderCharts(data); }); return; } setTimeout(function () { renderCharts(data); }, 0); }
       function dateTimeFormatter(cell) { var value = cell.getValue(); return value ? new Date(value).toLocaleString() : badge('info', 'Sem data'); }
-      function minuteFormatter(cell) { var row = cell.getRow().getData(); return row.isAnalyzed ? formatDuration(cell.getValue()) : badge('info', 'Pendente'); }
+      function minuteFormatter(cell) { var row = cell.getRow().getData(); return row.isAnalyzed ? formatDuration(cell.getValue()) : badge('info', 'Em aberto'); }
       function createTable(id, rows, columns) { if (state.tables[id]) { state.tables[id].setColumns(columns); state.tables[id].setData(rows); return; } state.tables[id] = new Tabulator('#' + id, { data: rows, layout: 'fitColumns', height: 420, pagination: true, paginationSize: 8, responsiveLayout: 'collapse', movableColumns: false, columns: columns }); }
       function renderTable(rows) { qs('tableContext').textContent = rows.length ? rows.length + ' cargas exibidas no recorte atual.' : 'Nenhuma carga encontrada para os filtros aplicados.'; if (!rows.length) { setHtml('cycleTable', '<div class="empty-state">Nenhuma carga encontrada para os filtros aplicados.</div>'); if (state.tables.cycleTable) { state.tables.cycleTable.destroy(); delete state.tables.cycleTable; } return; } setHtml('cycleTable', ''); createTable('cycleTable', rows, [{ title: 'Pedido / Carga', field: 'orderOrLoadNumber', widthGrow: 1.2 }, { title: 'Cliente', field: 'clientName', widthGrow: 1.4 }, { title: 'Data de criacao', field: 'creationDateIso', formatter: dateTimeFormatter, widthGrow: 1.2 }, { title: 'Data de finalizacao', field: 'finalizationDateIso', formatter: dateTimeFormatter, widthGrow: 1.2 }, { title: 'Tempo total do ciclo', field: 'cycleMinutes', hozAlign: 'right', formatter: minuteFormatter }, { title: 'Prazo', field: 'slaLabel', formatter: function (cell) { var row = cell.getRow().getData(); return badge(row.analysisTone, row.slaLabel); } }, { title: 'Status da analise', field: 'analysisStatus', formatter: function (cell) { var row = cell.getRow().getData(); return badge(row.analysisTone, row.analysisStatus); } }, { title: 'Status', field: 'status', formatter: function (cell) { return translateStatus(cell.getValue()); } }]); }
       function rerender() { if (!state.data) return; renderOverview(state.data); renderAlerts(state.data); }

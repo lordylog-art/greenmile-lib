@@ -85,6 +85,66 @@ var DashboardWebApp = (function () {
     return getCycleDashboardData(filters || {});
   }
 
+  function debugCycleData(filters) {
+    var result = {
+      generatedAt: new Date().toISOString(),
+      spreadsheetId: resolveSpreadsheetId_(),
+      filters: filters || {},
+      success: false,
+      sheets: {},
+      snapshot: null,
+      analytics: null,
+      error: null
+    };
+
+    try {
+      var ss = SpreadsheetApp.openById(resolveSpreadsheetId_());
+      var routesSheet = ss.getSheetByName(SHEETS.routes);
+      var stopsSheet = ss.getSheetByName(SHEETS.stops);
+
+      result.sheets.routes = readSheetDiagnostics_(routesSheet, {
+        routeKey: ['routeKey', 'route.key', 'key'],
+        routeId: ['routeId', 'route.id', 'id'],
+        creationDate: ['creationDate', 'route.creationDate', 'route.date', 'date'],
+        actualComplete: ['actualComplete', 'route.actualComplete'],
+        status: ['status', 'route.status']
+      });
+      result.sheets.stops = readSheetDiagnostics_(stopsSheet, {
+        routeKey: ['routeKey', 'route.key', 'key'],
+        routeId: ['routeId', 'route.id', 'id'],
+        locationKey: ['locationKey', 'stop.location.key'],
+        locationName: ['locationName', 'stop.location.description']
+      });
+
+      var snapshot = getCycleSnapshot_();
+      result.snapshot = {
+        routeCount: (snapshot.routes || []).length,
+        stopCount: (snapshot.stops || []).length,
+        options: snapshot.options || {},
+        sampleRoute: snapshot.routes && snapshot.routes.length ? snapshot.routes[0] : null,
+        sampleStop: snapshot.stops && snapshot.stops.length ? snapshot.stops[0] : null
+      };
+
+      var appliedFilters = normalizeCycleFilters_(filters || {}, snapshot.options);
+      var data = buildCycleAnalytics_(snapshot, appliedFilters);
+      result.analytics = {
+        meta: data.meta || {},
+        overview: data.overview || {},
+        tableSize: data.table ? data.table.length : 0,
+        sampleRow: data.table && data.table.length ? data.table[0] : null
+      };
+
+      result.success = true;
+      return result;
+    } catch (err) {
+      result.error = {
+        message: err && err.message ? err.message : String(err),
+        stack: err && err.stack ? String(err.stack) : ''
+      };
+      return result;
+    }
+  }
+
   function warmDashboardCache(filters) {
     var snapshot = getSnapshot_();
     var appliedFilters = normalizeFilters_(filters, snapshot.options);
@@ -169,23 +229,32 @@ var DashboardWebApp = (function () {
     }
 
     var routes = readSheetObjects_(routesSheet, [
-      'routeKey', 'routeId', 'date', 'creationDate', 'status', 'driverKey',
-      'organization.description', 'driversName', 'actualComplete'
+      'routeKey', 'route.key', 'key',
+      'routeId', 'route.id', 'id',
+      'date', 'route.date',
+      'creationDate', 'route.creationDate',
+      'status', 'route.status',
+      'driverKey', 'route.driverAssignments.driver.key', 'driverAssignments.driver.key',
+      'organization.description', 'route.organization.description', 'organizationDescription',
+      'driversName', 'driverName', 'route.driverAssignments.driver.name', 'driverAssignments.driver.name',
+      'actualComplete', 'route.actualComplete'
     ]).map(normalizeRouteRow_).filter(function (row) {
-      return !!row.routeKey;
+      return !!(row.routeKey || row.routeId);
     });
 
     var stops = stopsSheet ? readSheetObjects_(stopsSheet, [
-      'routeKey', 'routeId', 'stopId', 'stopIndex', 'driverKey', 'locationKey',
+      'routeKey', 'route.key', 'key',
+      'routeId', 'route.id', 'id',
+      'stopId', 'stop.id', 'stopIndex', 'driverKey', 'locationKey',
       'organization.description', 'locationName', 'deliveryStatus', 'hasSignature',
       'actualArrival', 'actualDeparture', 'actualService', 'actualServiceTime',
       'plannedSequenceNum', 'actualSequenceNum', 'signatureConformity'
     ]).map(normalizeStopRow_).filter(function (row) {
-      return !!row.routeKey;
+      return !!(row.routeKey || row.routeId);
     }) : [];
 
     if (!routes.length) {
-      throw new Error('A aba de rotas nao possui dados utilizaveis para o ciclo do pedido. Execute a exportacao novamente e confirme as colunas obrigatorias.');
+      throw new Error('A aba de rotas nao possui dados utilizaveis para o ciclo do pedido. Confirme se existem colunas de rota (routeKey/route.key/id) e execute a exportacao novamente.');
     }
 
     var options = buildCycleBaseOptions_(routes, stops);
@@ -306,9 +375,14 @@ var DashboardWebApp = (function () {
     var transporterPerformance = buildCycleTransporterPerformance_(analyzedRows);
     var trendByDay = buildCycleTrendByDay_(analyzedRows);
 
+    // Remove a referência de optionsClients para evitar problemas de DAG/Circular Ref
+    // no momento da serialização do google.script.run
+    var safeFilters = assign_({}, filters);
+    delete safeFilters.optionsClients;
+
     return {
       generatedAt: new Date().toISOString(),
-      filters: filters,
+      filters: safeFilters,
       options: buildCycleFilterOptions_(cycleRows, snapshot.options),
       meta: {
         totalRows: filteredRows.length,
@@ -794,16 +868,17 @@ var DashboardWebApp = (function () {
   }
 
   function buildCycleRows_(snapshot) {
-    var stopGroups = groupBy_(snapshot.stops || [], function (stop) { return stop.routeKey; });
+    var stopGroups = groupBy_(snapshot.stops || [], function (stop) { return stop.routeKey || stop.routeId; });
 
     return (snapshot.routes || []).map(function (route) {
+      var routePrimaryKey = route.routeKey || route.routeId;
       var creationDate = parseDateSafe_(route.creationDate) || parseDateSafe_(route.date);
-      var finalizationDate = route.actualCompleteDate || null;
-      var cycleMinutes = minutesBetween_(creationDate, finalizationDate);
+      var cycleEndDate = route.actualCompleteDate || null;
+      var cycleMinutes = minutesBetween_(creationDate, cycleEndDate);
       var cycleDeadline = computeCycleDeadline_(creationDate);
       var isAnalyzed = cycleMinutes !== null;
-      var isWithinSla = isAnalyzed && cycleDeadline && finalizationDate.getTime() <= cycleDeadline.getTime();
-      var routeStops = stopGroups[route.routeKey] || [];
+      var isWithinSla = isAnalyzed && cycleDeadline && cycleEndDate.getTime() <= cycleDeadline.getTime();
+      var routeStops = stopGroups[routePrimaryKey] || [];
       var primaryStop = routeStops[0] || null;
       var clientNamesMap = {};
       var clientNames = [];
@@ -815,9 +890,9 @@ var DashboardWebApp = (function () {
       });
 
       return {
-        routeKey: route.routeKey,
+        routeKey: route.routeKey || route.routeId,
         routeId: route.routeId,
-        orderOrLoadNumber: route.routeKey,
+        orderOrLoadNumber: route.routeKey || route.routeId,
         primaryOrderNumber: '',
         clientKey: primaryStop ? primaryStop.clientKey : '',
         clientName: primaryStop ? primaryStop.clientName : CLIENT_FALLBACK,
@@ -826,16 +901,16 @@ var DashboardWebApp = (function () {
         transporterName: DEFAULT_TRANSPORTER_NAME,
         status: route.status || 'UNKNOWN',
         creationDateIso: creationDate ? creationDate.toISOString() : '',
-        finalizationDateIso: finalizationDate ? finalizationDate.toISOString() : '',
+        finalizationDateIso: cycleEndDate ? cycleEndDate.toISOString() : '',
         cycleDeadlineIso: cycleDeadline ? cycleDeadline.toISOString() : '',
         creationDateKey: toDateKey_(creationDate),
-        finalizationDateKey: toDateKey_(finalizationDate),
+        finalizationDateKey: toDateKey_(cycleEndDate),
         cycleMinutes: round1_(cycleMinutes || 0),
         cycleHours: round1_((cycleMinutes || 0) / 60),
         isAnalyzed: isAnalyzed,
         isWithinSla: isWithinSla,
-        slaLabel: !isAnalyzed ? 'Sem conclusao' : (isWithinSla ? 'Dentro do prazo' : 'Fora do prazo'),
-        analysisStatus: !isAnalyzed ? 'Aguardando finalizacao' : (isWithinSla ? 'Dentro do prazo' : 'Fora do prazo'),
+        slaLabel: !isAnalyzed ? 'Em aberto' : (isWithinSla ? 'Dentro do prazo' : 'Fora do prazo'),
+        analysisStatus: !isAnalyzed ? 'Em aberto' : (isWithinSla ? 'Dentro do prazo' : 'Fora do prazo'),
         analysisTone: !isAnalyzed ? 'info' : (isWithinSla ? 'good' : 'danger')
       };
     }).sort(function (a, b) {
@@ -1030,22 +1105,146 @@ var DashboardWebApp = (function () {
     return rows;
   }
 
-  function normalizeRouteRow_(row) {
-    var dateObj = parseDateSafe_(row.date || row.creationDate);
+  function readSheetDiagnostics_(sheet, expectedFieldAliases) {
+    if (!sheet) {
+      return {
+        exists: false,
+        lastRow: 0,
+        lastColumn: 0,
+        headers: [],
+        nonEmptyDataRows: 0,
+        mappedFields: {},
+        sampleRawRow: null
+      };
+    }
+
+    var values = [];
+    var lastRow = 0;
+    var lastColumn = 0;
+
+    if (typeof sheet.getLastRow === 'function' && typeof sheet.getLastColumn === 'function') {
+      lastRow = sheet.getLastRow();
+      lastColumn = sheet.getLastColumn();
+      if (lastRow > 0 && lastColumn > 0 && typeof sheet.getRange === 'function') {
+        values = sheet.getRange(1, 1, lastRow, lastColumn).getValues();
+      }
+    }
+
+    if (!values.length && typeof sheet.getDataRange === 'function') {
+      values = sheet.getDataRange().getValues();
+      lastRow = values.length;
+      lastColumn = values[0] ? values[0].length : 0;
+    }
+
+    var headers = values[0] || [];
+    var normalizedHeaders = headers.map(function (value) {
+      return String(value || '').trim();
+    }).filter(function (value) {
+      return !!value;
+    });
+    var nonEmptyDataRows = 0;
+    var sampleRawRow = null;
+
+    for (var i = 1; i < values.length; i += 1) {
+      var row = values[i] || [];
+      var hasValue = row.some(function (cell) {
+        return cell !== '' && cell !== null && cell !== undefined;
+      });
+      if (!hasValue) continue;
+      nonEmptyDataRows += 1;
+      if (!sampleRawRow) sampleRawRow = row;
+    }
+
+    var mappedFields = {};
+    var aliasMap = expectedFieldAliases || {};
+    Object.keys(aliasMap).forEach(function (field) {
+      mappedFields[field] = resolveDetectedAlias_(normalizedHeaders, aliasMap[field]);
+    });
+
     return {
-      routeKey: toStringSafe_(row.routeKey),
-      routeId: toStringSafe_(row.routeId),
-      date: toStringSafe_(row.date),
-      creationDate: toStringSafe_(row.creationDate),
+      exists: true,
+      lastRow: lastRow,
+      lastColumn: lastColumn,
+      headers: normalizedHeaders,
+      nonEmptyDataRows: nonEmptyDataRows,
+      mappedFields: mappedFields,
+      sampleRawRow: sampleRawRow
+    };
+  }
+
+  function resolveDetectedAlias_(headers, aliases) {
+    var list = aliases || [];
+    for (var i = 0; i < list.length; i += 1) {
+      if ((headers || []).indexOf(list[i]) !== -1) {
+        return list[i];
+      }
+    }
+    return '';
+  }
+
+  function normalizeRouteRow_(row) {
+    var routeId = firstDefinedValue_(
+      row.routeId,
+      row['route.id'],
+      row.id
+    );
+    var routeKey = firstDefinedValue_(
+      row.routeKey,
+      row['route.key'],
+      row.key,
+      routeId
+    );
+    var dateRaw = firstDefinedValue_(
+      row.date,
+      row['route.date'],
+      row.creationDate,
+      row['route.creationDate']
+    );
+    var creationDateRaw = firstDefinedValue_(
+      row.creationDate,
+      row['route.creationDate'],
+      row.date,
+      row['route.date']
+    );
+    var statusRaw = firstDefinedValue_(
+      row.status,
+      row['route.status']
+    );
+    var driverKeyRaw = firstDefinedValue_(
+      row.driverKey,
+      row['driverAssignments.driver.key'],
+      row['route.driverAssignments.driver.key']
+    );
+    var driversNameRaw = firstDefinedValue_(
+      row.driversName,
+      row.driverName,
+      row['driverAssignments.driver.name'],
+      row['route.driverAssignments.driver.name']
+    );
+    var organizationRaw = firstDefinedValue_(
+      row['organization.description'],
+      row.organizationDescription,
+      row['route.organization.description']
+    );
+    var actualCompleteRaw = firstDefinedValue_(
+      row.actualComplete,
+      row['route.actualComplete']
+    );
+    var dateObj = parseDateSafe_(dateRaw || creationDateRaw);
+    return {
+      routeKey: toStringSafe_(routeKey),
+      routeId: toStringSafe_(routeId || routeKey),
+      date: toStringSafe_(dateRaw),
+      creationDate: toStringSafe_(creationDateRaw),
       dateKey: toDateKey_(dateObj),
       sortTime: dateObj ? dateObj.getTime() : 0,
-      status: toStringSafe_(row.status) || 'UNKNOWN',
-      driverKey: toStringSafe_(row.driverKey) || DRIVER_FALLBACK,
-      driverName: cleanDriverName_(row.driversName) || toStringSafe_(row.driverKey) || DRIVER_FALLBACK,
-      organizationDescription: toStringSafe_(row['organization.description']) || '',
+      status: toStringSafe_(statusRaw) || 'UNKNOWN',
+      driverKey: toStringSafe_(driverKeyRaw) || DRIVER_FALLBACK,
+      driverName: cleanDriverName_(driversNameRaw) || toStringSafe_(driverKeyRaw) || DRIVER_FALLBACK,
+      organizationDescription: toStringSafe_(organizationRaw) || '',
       actualStartDate: parseDateSafe_(row.actualStart),
       actualArrivalDate: parseDateSafe_(row.actualArrival),
-      actualCompleteDate: parseDateSafe_(row.actualComplete),
+      actualCompleteDate: parseDateSafe_(actualCompleteRaw),
       actualTravelTimeMinutes: toNumberSafe_(row.actualTravelTimeMinutes),
       actualServiceTime: toNumberSafe_(row.actualServiceTime),
       plannedTravelTimeMinutes: toNumberSafe_(row.plannedTravelTimeMinutes),
@@ -1056,15 +1255,30 @@ var DashboardWebApp = (function () {
   }
 
   function normalizeStopRow_(row) {
+    var routeId = firstDefinedValue_(
+      row.routeId,
+      row['route.id'],
+      row.id
+    );
+    var routeKey = firstDefinedValue_(
+      row.routeKey,
+      row['route.key'],
+      row.key,
+      routeId
+    );
+    var stopId = firstDefinedValue_(
+      row.stopId,
+      row['stop.id']
+    );
     var actualArrivalDate = parseDateSafe_(row.actualArrival);
     var actualDepartureDate = parseDateSafe_(row.actualDeparture);
     var actualServiceDate = parseDateSafe_(row.actualService);
     var clientName = toStringSafe_(row.locationName) || CLIENT_FALLBACK;
     var clientKey = toStringSafe_(row.locationKey) || clientName;
     return {
-      routeKey: toStringSafe_(row.routeKey),
-      routeId: toStringSafe_(row.routeId),
-      stopId: toStringSafe_(row.stopId),
+      routeKey: toStringSafe_(routeKey),
+      routeId: toStringSafe_(routeId || routeKey),
+      stopId: toStringSafe_(stopId),
       stopIndex: toNumberSafe_(row.stopIndex),
       driverKey: toStringSafe_(row.driverKey) || DRIVER_FALLBACK,
       organizationDescription: toStringSafe_(row['organization.description']) || '',
@@ -1382,6 +1596,16 @@ var DashboardWebApp = (function () {
     return target;
   }
 
+  function firstDefinedValue_() {
+    for (var i = 0; i < arguments.length; i += 1) {
+      var value = arguments[i];
+      if (value !== undefined && value !== null && value !== '') {
+        return value;
+      }
+    }
+    return '';
+  }
+
   function toStringSafe_(value) {
     return value === undefined || value === null ? '' : String(value);
   }
@@ -1415,7 +1639,8 @@ var DashboardWebApp = (function () {
     refreshDashboardCache: refreshDashboardCache,
     warmDashboardCache: warmDashboardCache,
     getCycleDashboardData: getCycleDashboardData,
-    refreshCycleDashboardCache: refreshCycleDashboardCache
+    refreshCycleDashboardCache: refreshCycleDashboardCache,
+    debugCycleData: debugCycleData
   };
 })();
 
@@ -1445,6 +1670,56 @@ function dashboardGetCycleData(filters) {
 
 function dashboardRefreshCycleData(filters) {
   return DashboardWebApp.refreshCycleDashboardCache(filters || {});
+}
+
+function dashboardGetCycleDataV2(filters) {
+  var data = DashboardWebApp.getCycleDashboardData(filters || {});
+  // Garante a serialização limpa de DAGs, Dates e objetos Apps Script:
+  return JSON.parse(JSON.stringify(data));
+}
+
+function dashboardRefreshCycleDataV2(filters) {
+  var data = DashboardWebApp.refreshCycleDashboardCache(filters || {});
+  return JSON.parse(JSON.stringify(data));
+}
+
+function logDashboardCycleDebug(filters) {
+  var debug = DashboardWebApp.debugCycleData(filters || {});
+  if (typeof Logger !== 'undefined' && Logger && typeof Logger.log === 'function') {
+    Logger.log('[Cycle Debug] %s', JSON.stringify(debug, null, 2));
+  }
+  return debug;
+}
+
+function runCycleDebug() {
+  return logDashboardCycleDebug({});
+}
+
+function runCycleDataSmoke() {
+  var data = dashboardGetCycleData({});
+  var summary = {
+    generatedAt: new Date().toISOString(),
+    hasData: !!data,
+    type: Object.prototype.toString.call(data),
+    hasMeta: !!(data && data.meta),
+    hasOverview: !!(data && data.overview),
+    hasTable: !!(data && data.table),
+    tableLength: data && data.table && data.table.length ? data.table.length : 0,
+    keys: data ? Object.keys(data) : [],
+    serializedLength: 0
+  };
+
+  try {
+    summary.serializedLength = JSON.stringify(data || {}).length;
+  } catch (err) {
+    summary.serializeError = err && err.message ? err.message : String(err);
+  }
+
+  if (typeof Logger !== 'undefined' && Logger && typeof Logger.log === 'function') {
+    Logger.log('[Cycle Smoke] %s', JSON.stringify(summary, null, 2));
+  }
+
+  return summary;
 }
 
 function dashboardWarmCache(filters) {
