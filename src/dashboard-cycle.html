@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Jetta Transportes | Analise Ciclo do Pedido</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://unpkg.com/tabulator-tables@6.2.5/dist/css/tabulator.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://unpkg.com/tabulator-tables@6.2.5/dist/js/tabulator.min.js"></script>
+    <style>
+      :root{--bg:linear-gradient(160deg,#07101a 0%,#0b1930 52%,#08111d 100%);--panel:rgba(10,23,43,.82);--panel-strong:rgba(8,18,34,.94);--panel-soft:rgba(255,255,255,.05);--text:#f5f9ff;--muted:#97a7c3;--line:rgba(159,183,222,.14);--blue:#2f78c4;--orange:#ff9a1f;--good:#26d0a8;--warn:#ffb347;--danger:#ff6b74;--shadow:0 22px 60px rgba(0,0,0,.32)}
+      body[data-theme="light"]{--bg:linear-gradient(160deg,#f6f9ff 0%,#ebf1fb 55%,#eff4fb 100%);--panel:rgba(255,255,255,.9);--panel-strong:rgba(255,255,255,.96);--panel-soft:rgba(15,60,120,.04);--text:#0f1f3b;--muted:#60718d;--line:rgba(56,92,146,.12);--shadow:0 18px 40px rgba(48,84,152,.14)}
+      *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;min-height:100vh;font-family:"Manrope",sans-serif;color:var(--text);background:var(--bg)}body.app-loading{overflow:hidden}
+      .app-loader{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at top left,rgba(47,120,196,.22),transparent 34%),radial-gradient(circle at bottom right,rgba(255,154,31,.16),transparent 28%),rgba(7,16,26,.82);backdrop-filter:blur(18px);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .28s ease,visibility .28s ease}body[data-theme="light"] .app-loader{background:radial-gradient(circle at top left,rgba(47,120,196,.12),transparent 34%),radial-gradient(circle at bottom right,rgba(255,154,31,.14),transparent 28%),rgba(246,249,255,.78)}.app-loader.is-visible{opacity:1;visibility:visible;pointer-events:auto}.app-loader-inner{display:flex;align-items:center;justify-content:center}.app-loader-mark{position:relative;width:min(420px,86vw);height:260px;display:flex;align-items:center;justify-content:center}.app-loader-halo,.app-loader-halo::before,.app-loader-halo::after{position:absolute;inset:50% auto auto 50%;border-radius:999px;transform:translate(-50%,-50%);content:""}.app-loader-halo{width:330px;height:330px;border:1px solid rgba(47,120,196,.18);box-shadow:0 0 0 18px rgba(47,120,196,.05),0 0 80px rgba(47,120,196,.18);animation:loaderOrbit 3.2s linear infinite}.app-loader-halo::before{width:250px;height:250px;border:1px solid rgba(255,154,31,.24);box-shadow:0 0 70px rgba(255,154,31,.14);animation:loaderPulse 1.8s ease-in-out infinite}.app-loader-halo::after{width:164px;height:164px;background:radial-gradient(circle,rgba(255,255,255,.16),transparent 62%),radial-gradient(circle,rgba(47,120,196,.10),transparent 78%);animation:loaderPulse 1.8s ease-in-out infinite reverse}.app-loader-logo{position:relative;z-index:1;width:100%;max-width:340px;filter:drop-shadow(0 18px 34px rgba(0,0,0,.22)) drop-shadow(0 0 28px rgba(255,255,255,.08));animation:loaderFloat 2.4s ease-in-out infinite}.app-loader-logo img{display:block;width:100%;height:auto;object-fit:contain}@keyframes loaderFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}@keyframes loaderPulse{0%,100%{transform:translate(-50%,-50%) scale(.96);opacity:.58}50%{transform:translate(-50%,-50%) scale(1.06);opacity:1}}@keyframes loaderOrbit{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+      .shell{max-width:1520px;margin:0 auto;padding:24px}.topbar,.panel,.nav a,.kpi-card,.card{background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow)}.topbar,.panel{border-radius:28px}.topbar{position:sticky;top:16px;z-index:20;display:grid;grid-template-columns:minmax(320px,1.4fr) minmax(240px,.9fr) minmax(260px,auto);gap:18px;align-items:center;padding:18px 22px;margin-bottom:22px;backdrop-filter:blur(22px)}.panel{padding:22px;margin-bottom:18px}.brand-title,.section-head h2,.card h3{margin:0;font-family:"Sora",sans-serif}.brand-title{font-size:clamp(28px,3.2vw,42px);line-height:1.05}.brand-copy,.section-copy,.context-line{color:var(--muted);font-size:14px;line-height:1.55}.meta-stack,.actions,.nav{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.meta-stack,.actions{justify-content:flex-end}.chip,.button,.input,.select,.toggle,.badge{border-radius:14px}.chip{padding:12px 14px;background:var(--panel-soft);border:1px solid var(--line);color:var(--muted);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.chip span{color:var(--text);text-transform:none;letter-spacing:0}.button{border:0;padding:12px 16px;font:inherit;font-weight:700;cursor:pointer}.button.brand{color:#fff;background:linear-gradient(135deg,var(--blue),var(--orange))}.button.secondary{color:var(--text);background:var(--panel-soft);border:1px solid var(--line)}.theme-toggle{display:inline-flex;gap:10px;align-items:center;color:var(--muted);font-size:13px;font-weight:700}.toggle{position:relative;width:54px;height:30px;border:1px solid var(--line);background:var(--panel-soft)}.toggle::after{content:"";position:absolute;top:3px;left:4px;width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--orange));transition:transform .22s ease}body[data-theme="light"] .toggle::after{transform:translateX(24px)}
+      .nav{margin-bottom:18px}.nav a{padding:10px 14px;border-radius:999px;color:var(--muted);text-decoration:none;font-weight:700;font-size:13px}.nav a.active{color:#fff;background:linear-gradient(135deg,rgba(47,120,196,.95),rgba(255,154,31,.82))}
+      .filters-grid,.kpis,.analytics-grid{display:grid;gap:14px}.filters-grid{grid-template-columns:repeat(6,minmax(0,1fr))}.field{display:grid;gap:8px}.field label,.kpi-label{font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.input,.select{width:100%;padding:13px 14px;border:1px solid var(--line);background:var(--panel-strong);color:var(--text);font:inherit}.section-head,.table-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:18px}.kpis{grid-template-columns:repeat(6,minmax(0,1fr));margin-bottom:18px}.kpi-card,.card{background:var(--panel-strong);border-radius:24px}.kpi-card{padding:18px;min-height:132px;display:grid;gap:10px;align-content:start}.kpi-value{font-family:"Sora",sans-serif;font-size:clamp(24px,2vw,34px);line-height:1.05}.kpi-help{color:var(--muted);font-size:13px;line-height:1.45}.tone-brand .kpi-value{color:#7db9ff}.tone-good .kpi-value{color:var(--good)}.tone-danger .kpi-value{color:var(--danger)}.tone-warn .kpi-value{color:var(--warn)}.tone-info .kpi-value{color:#98c4ff}.analytics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:18px}.chart{min-height:320px}.alert-list{display:grid;gap:12px}.alert-item{padding:14px;border-radius:18px;border:1px solid var(--line);background:var(--panel-soft)}.alert-item strong{display:block;margin-bottom:6px}.alert-info{box-shadow:inset 3px 0 0 #4da1ff}.alert-good{box-shadow:inset 3px 0 0 var(--good)}.alert-warn{box-shadow:inset 3px 0 0 var(--warn)}.alert-danger{box-shadow:inset 3px 0 0 var(--danger)}
+      .badge{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800;border:1px solid transparent;white-space:nowrap}.badge.good{color:#081813;background:rgba(38,208,168,.9)}.badge.danger{color:#fff;background:rgba(255,107,116,.94)}.badge.warn{color:#271400;background:rgba(255,179,71,.92)}.badge.info{color:#dcecff;background:rgba(77,161,255,.18);border-color:rgba(77,161,255,.24)}.table-slot{min-height:420px}.empty-state{min-height:180px;display:flex;align-items:center;justify-content:center;padding:20px;border-radius:18px;border:1px dashed rgba(159,183,222,.28);color:var(--muted);text-align:center;line-height:1.55}.pulse{min-height:120px;border-radius:22px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.1),rgba(255,255,255,.04));background-size:200% 100%;animation:pulse 1.2s linear infinite}@keyframes pulse{0%{background-position:200% 0}100%{background-position:-200% 0}}
+      .tabulator{border:1px solid var(--line);border-radius:18px;background:transparent;color:var(--text)}.tabulator .tabulator-header,.tabulator .tabulator-footer{background:rgba(0,0,0,.14);border-color:var(--line)}.tabulator .tabulator-col,.tabulator .tabulator-cell,.tabulator .tabulator-row{border-color:var(--line)}.tabulator .tabulator-row:nth-child(even){background:rgba(255,255,255,.02)}.tabulator .tabulator-page{color:var(--text);border:1px solid var(--line);background:var(--panel-soft)}.tabulator .tabulator-page.active{color:#fff;background:linear-gradient(135deg,var(--blue),var(--orange))}
+      @media (max-width:1380px){.filters-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}@media (max-width:980px){.shell{padding:16px}.topbar{grid-template-columns:1fr;top:10px}.meta-stack,.actions{justify-content:flex-start}.filters-grid,.analytics-grid,.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}@media (max-width:640px){.filters-grid,.analytics-grid,.kpis{grid-template-columns:1fr}.topbar{padding:16px}.panel{padding:18px}}
+    </style>
+  </head>
+  <body data-theme="dark">
+    <div id="appLoader" class="app-loader is-visible" aria-live="polite" aria-busy="true">
+      <div class="app-loader-inner">
+        <div class="app-loader-mark">
+          <div class="app-loader-halo"></div>
+          <div class="app-loader-logo">
+            <img src="https://drive.google.com/thumbnail?id=1QoZbCxsrH30MSx4j2cc1Ne2mw7n1oidj&sz=w1200" alt="Jetta Transportes">
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <h1 class="brand-title">Analise Ciclo do Pedido</h1>
+          <p class="brand-copy">Monitoramento do tempo entre criacao e finalizacao da carga, mantendo o mesmo padrao visual, hierarquia e responsividade do hub atual.</p>
+        </div>
+        <div class="meta-stack">
+          <div class="chip">Atualizacao: <span id="metaTimestamp">carregando</span></div>
+          <div class="chip">Dashboard ativo: <span id="metaScope">Analise Ciclo do Pedido</span></div>
+        </div>
+        <div class="actions">
+          <button class="button secondary" type="button" onclick="openPage('hub')">Voltar ao hub</button>
+          <div class="theme-toggle"><span>Claro</span><button id="themeToggle" class="toggle" aria-label="Alternar tema"></button></div>
+          <button id="refreshBtn" class="button brand" type="button">Atualizar dados</button>
+        </div>
+      </header>
+      <nav class="nav" id="sectionNav">
+        <a href="#" data-page-link="hub">Hub</a>
+        <a href="#filtros">Filtros</a>
+        <a href="#resumo" class="active">Resumo</a>
+        <a href="#tabela">Tabela</a>
+      </nav>
+      <section id="filtros" class="panel">
+        <div class="section-head"><div><h2>Filtros</h2><div class="section-copy">Estrutura inicial preparada para periodo, transportadora, unidade, status, cliente e busca textual.</div></div></div>
+        <div class="filters-grid">
+          <div class="field"><label>Periodo inicial</label><input id="dateFrom" class="input" type="date"></div>
+          <div class="field"><label>Periodo final</label><input id="dateTo" class="input" type="date"></div>
+          <div class="field"><label>Transportadora</label><select id="transporter" class="select"><option value="">Todas</option></select></div>
+          <div class="field"><label>Unidade / Filial</label><select id="organizationDescription" class="select"><option value="">Todas</option></select></div>
+          <div class="field"><label>Status</label><select id="status" class="select"><option value="">Todos</option></select></div>
+          <div class="field"><label>Cliente</label><select id="clientKey" class="select"><option value="">Todos</option></select></div>
+        </div>
+        <div class="filters-grid" style="grid-template-columns:minmax(0,1fr);margin-top:14px;">
+          <div class="field"><label>Busca textual</label><input id="search" class="input" type="text" placeholder="Pedido, carga, cliente, status..."></div>
+        </div>
+        <div class="actions" style="margin-top:16px;justify-content:flex-start;">
+          <button id="applyBtn" class="button brand" type="button">Aplicar filtros</button>
+          <button id="clearBtn" class="button secondary" type="button">Limpar</button>
+        </div>
+      </section>
+      <section id="resumo" class="panel">
+        <div class="section-head"><div><h2>Resumo Executivo</h2><div class="section-copy">KPIs basicos, dashboards iniciais e leitura objetiva do prazo ate 23:59 do dia seguinte para o ciclo da carga.</div></div></div>
+        <div id="kpiGrid" class="kpis"></div>
+        <div class="analytics-grid">
+          <div class="card"><h3>Dentro do prazo vs fora do prazo</h3><div id="slaBreakdownChart" class="chart"></div></div>
+          <div class="card"><h3>Quantidade por dia</h3><div id="countByDayChart" class="chart"></div></div>
+          <div class="card"><h3>Desempenho por transportadora</h3><div id="transporterPerformanceChart" class="chart"></div></div>
+          <div class="card"><h3>Evolucao do percentual dentro do prazo</h3><div id="trendByDayChart" class="chart"></div></div>
+        </div>
+        <div class="card" style="margin-top:14px;"><h3>Leituras do recorte</h3><div id="alerts" class="alert-list" style="margin-top:14px;"></div></div>
+      </section>
+      <section id="tabela" class="panel">
+        <div class="table-head"><div><h2 style="margin:0;font-family:'Sora',sans-serif;">Tabela detalhada de cargas</h2><div id="tableContext" class="context-line">Carregando contexto...</div></div></div>
+        <div id="cycleTable" class="table-slot"></div>
+      </section>
+    </div>
+    <script>
+      var APP_URL = <?!= JSON.stringify(appUrl || '') ?>;
+      var state = {
+        data: null,
+        charts: {},
+        tables: {},
+        theme: localStorage.getItem('gm-theme') || 'dark',
+        activeRequestId: 0,
+        activeRequestSettled: false,
+        requestTimeoutId: null
+      };
+      function qs(id) { return document.getElementById(id); }
+      function qsa(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+      function setHtml(id, html) { var el = qs(id); if (el) el.innerHTML = html; }
+      function showAppLoader() { document.body.classList.add('app-loading'); qs('appLoader').classList.add('is-visible'); }
+      function hideAppLoader() { document.body.classList.remove('app-loading'); qs('appLoader').classList.remove('is-visible'); }
+      function clearRequestWatchdog() {
+        if (!state.requestTimeoutId) return;
+        clearTimeout(state.requestTimeoutId);
+        state.requestTimeoutId = null;
+      }
+      function finalizeRequest(requestId) {
+        if (requestId !== state.activeRequestId) return false;
+        if (state.activeRequestSettled) return false;
+        state.activeRequestSettled = true;
+        clearRequestWatchdog();
+        hideAppLoader();
+        return true;
+      }
+      function buildPageUrl(page) { var base = APP_URL || 'https://script.google.com/macros/s/AKfycbxbxhYb1yDAuRCqa5zy1v3DtKsPXazOyr_bA5q1qDMhJM1l_JOxO414cK85PxW2d5jb/exec'; return base + '?page=' + encodeURIComponent(page); }
+      function openPage(page) { var url = buildPageUrl(page); if (window.top && window.top.location) { window.top.location.href = url; return; } window.location.href = url; }
+      function getFilters() { return { dateFrom: qs('dateFrom').value, dateTo: qs('dateTo').value, transporter: qs('transporter').value, organizationDescription: qs('organizationDescription').value, status: qs('status').value, clientKey: qs('clientKey').value, search: qs('search').value }; }
+      function setTheme(theme) { state.theme = theme; document.body.setAttribute('data-theme', theme); localStorage.setItem('gm-theme', theme); rerender(); }
+      function escapeHtml(str) { return String(str === undefined || str === null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
+      function shortNumber(value) { var num = Number(value || 0); return num >= 1000 ? (num / 1000).toFixed(1) + 'k' : String(Math.round(num)); }
+      function compactName(name) { name = String(name || ''); return name.length > 24 ? name.slice(0, 24) + '...' : name; }
+      function formatPct(value) { return Number(value || 0).toFixed(1) + '%'; }
+      function formatDuration(value) { var totalMinutes = Math.max(0, Math.round(Number(value || 0))); var days = Math.floor(totalMinutes / 1440); var hours = Math.floor((totalMinutes % 1440) / 60); var minutes = totalMinutes % 60; var parts = []; if (days) parts.push(days + 'd'); if (hours) parts.push(hours + 'h'); if (minutes || !parts.length) parts.push(minutes + 'min'); return parts.join(' '); }
+      function formatMetric(value, suffix) { if (suffix === ' tempo') return formatDuration(value); if (suffix === '%') return formatPct(value); var numeric = Number(value); return (isNaN(numeric) ? String(value || '') : numeric.toFixed(1).replace('.0', '')) + (suffix || ''); }
+      function badge(type, text) { return '<span class="badge ' + escapeHtml(type) + '">' + escapeHtml(text) + '</span>'; }
+      function translateStatus(value) { var map = { COMPLETED: 'Concluida', NOT_STARTED: 'Nao iniciada', DEPARTED_ORIGIN: 'Saiu da origem', DELIVERED: 'Entregue', PENDING: 'Pendente', REDELIVERED: 'Redespachada', IN_PROGRESS: 'Em andamento', UNDELIVERED: 'Nao entregue', PARTIALLY_DELIVERED: 'Parcialmente entregue', UNKNOWN: 'Nao informado' }; return map[value] || value || 'Nao informado'; }
+      function fillSelect(el, values, objectList) { var current = el.value; var html = '<option value="">' + ((el.id === 'status' || el.id === 'clientKey' || el.id === 'transporter') ? 'Todos' : 'Todas') + '</option>'; (values || []).forEach(function (item) { html += objectList ? '<option value="' + escapeHtml(item.key) + '">' + escapeHtml(item.name) + '</option>' : '<option value="' + escapeHtml(item) + '">' + escapeHtml(el.id === 'status' ? translateStatus(item) : item) + '</option>'; }); el.innerHTML = html; if (current) el.value = current; }
+      function applyOptions(options) { fillSelect(qs('transporter'), options.transporters || [], false); fillSelect(qs('organizationDescription'), options.organizations || [], false); fillSelect(qs('status'), options.statuses || [], false); fillSelect(qs('clientKey'), options.clients || [], true); if (!qs('dateFrom').value && options.minDate) qs('dateFrom').value = options.minDate; if (!qs('dateTo').value && options.maxDate) qs('dateTo').value = options.maxDate; }
+      function setLoading() { showAppLoader(); setHtml('kpiGrid', new Array(6).fill(0).map(function () { return '<div class="kpi-card pulse"></div>'; }).join('')); setHtml('alerts', '<div class="empty-state">Carregando leituras do periodo...</div>'); setHtml('cycleTable', '<div class="empty-state">Carregando tabela detalhada...</div>'); }
+      function loadData(forceRefresh) {
+        setLoading();
+        clearRequestWatchdog();
+        var requestId = state.activeRequestId + 1;
+        state.activeRequestId = requestId;
+        state.activeRequestSettled = false;
+        state.requestTimeoutId = setTimeout(function () {
+          onError({ message: 'Tempo limite ao carregar dados do ciclo do pedido. Tente novamente.' }, requestId);
+        }, 25000);
+        if (typeof google === 'undefined' || !google.script || !google.script.run) {
+          onError({ message: 'Conexao com o servidor indisponivel (google.script.run).' }, requestId);
+          return null;
+        }
+        try {
+          var runner = google.script.run
+            .withSuccessHandler(function (data) { onData(data, requestId); })
+            .withFailureHandler(function (err) { onError(err, requestId); });
+          return forceRefresh
+            ? runner.dashboardRefreshCycleData(getFilters())
+            : runner.dashboardGetCycleData(getFilters());
+        } catch (err) {
+          onError(err, requestId);
+          return null;
+        }
+      }
+      function onData(data, requestId) {
+        var currentRequestId = requestId || state.activeRequestId;
+        if (currentRequestId !== state.activeRequestId) return;
+        try {
+          if (!data || typeof data !== 'object') {
+            onError({ message: 'Resposta vazia ao carregar a analise de ciclo do pedido.' }, currentRequestId);
+            return;
+          }
+          state.data = data;
+          applyOptions(data.options || {});
+          renderMeta(data);
+          renderOverview(data);
+          renderAlerts(data);
+          renderTable(data.table || []);
+          finalizeRequest(currentRequestId);
+        } catch (err) {
+          onError(err, currentRequestId);
+        }
+      }
+      function onError(err, requestId) {
+        var currentRequestId = requestId || state.activeRequestId;
+        if (currentRequestId !== state.activeRequestId) return;
+        var message = err && err.message ? err.message : String(err);
+        setHtml('kpiGrid', '<div class="empty-state">Erro ao carregar KPIs.</div>');
+        setHtml('alerts', '<div class="empty-state">Erro ao carregar: ' + escapeHtml(message) + '</div>');
+        setHtml('cycleTable', '<div class="empty-state">Erro ao carregar a tabela detalhada.</div>');
+        destroyCharts();
+        finalizeRequest(currentRequestId);
+      }
+      function renderMeta(data) { qs('metaTimestamp').textContent = new Date(data.generatedAt).toLocaleString(); qs('metaScope').textContent = 'Analise Ciclo do Pedido'; }
+      function kpiCard(label, value, suffix, tone, help) { return '<article class="kpi-card tone-' + escapeHtml(tone) + '"><div class="kpi-label">' + escapeHtml(label) + '</div><div class="kpi-value">' + escapeHtml(formatMetric(value, suffix)) + '</div><div class="kpi-help">' + escapeHtml(help || '') + '</div></article>'; }
+      function renderOverview(data) { var overview = data.overview || {}; var meta = data.meta || {}; qs('kpiGrid').innerHTML = [kpiCard('Total de cargas analisadas', overview.totalLoads, '', 'brand', overview.pendingLoads ? overview.pendingLoads + ' pendentes sem finalizacao no recorte.' : 'Somente cargas com criacao e finalizacao validas entram no SLA.'), kpiCard('Cargas dentro do prazo', overview.withinDeadline, '', 'good', 'Cargas entregues ate o fim do dia seguinte da criacao.'), kpiCard('Cargas fora do prazo', overview.outsideDeadline, '', overview.outsideDeadline ? 'danger' : 'good', 'Cargas que ultrapassaram o prazo atual.'), kpiCard('% dentro do prazo', overview.withinDeadlinePct, '%', overview.withinDeadlinePct >= 95 ? 'good' : (overview.withinDeadlinePct >= 85 ? 'warn' : 'danger'), 'Percentual consolidado de aderencia ao SLA.'), kpiCard('Tempo medio de ciclo', overview.averageCycleMinutes, ' tempo', 'info', 'Media entre criacao e finalizacao da carga.'), kpiCard('Tempo maximo de ciclo', overview.maxCycleMinutes, ' tempo', 'warn', 'Maior ciclo registrado no recorte filtrado.')].join(''); if (!overview.totalVisibleLoads) { renderEmptyCharts('Sem cargas para o recorte atual.'); return; } scheduleCharts(data); }
+      function renderAlerts(data) { var overview = data.overview || {}; var tone = overview.withinDeadlinePct >= 95 ? 'good' : (overview.withinDeadlinePct >= 85 ? 'warn' : 'danger'); var alerts = [{ tone: tone, title: 'Aderencia ao prazo', body: formatPct(overview.withinDeadlinePct || 0) + ' das cargas analisadas foram entregues ate 23:59 do dia seguinte da criacao.' }, { tone: overview.outsideDeadline ? 'warn' : 'good', title: 'Cargas fora do prazo', body: shortNumber(overview.outsideDeadline || 0) + ' cargas superaram o prazo no recorte atual.' }, { tone: overview.pendingLoads ? 'info' : 'good', title: 'Cargas sem conclusao', body: shortNumber(overview.pendingLoads || 0) + ' cargas ainda nao possuem finalizacao suficiente para o calculo.' }, { tone: 'info', title: 'Regra atual', body: 'Carga criada hoje precisa ser entregue ate amanha as 23:59 para ficar dentro do prazo.' }]; qs('alerts').innerHTML = alerts.map(function (item) { return '<article class="alert-item alert-' + escapeHtml(item.tone) + '"><strong>' + escapeHtml(item.title) + '</strong><div>' + escapeHtml(item.body) + '</div></article>'; }).join(''); }
+      function chartGrid() { return { borderColor: state.theme === 'light' ? 'rgba(56,92,146,.10)' : 'rgba(159,183,222,.10)', strokeDashArray: 3, padding: { left: 6, right: 14, top: 6, bottom: 4 } }; }
+      function chartMuted() { return state.theme === 'light' ? '#60718d' : '#97a7c3'; }
+      function lineOptions(rows, xKey, yKey, name, color) { return { chart: { type: 'area', height: 320, toolbar: { show: false }, foreColor: chartMuted() }, series: [{ name: name, data: (rows || []).map(function (item) { return item[yKey] || 0; }) }], xaxis: { categories: (rows || []).map(function (item) { return item[xKey]; }), labels: { rotate: -38, trim: true, style: { fontSize: '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } }, yaxis: { labels: { formatter: function (value) { return Number(value || 0).toFixed(1) + '%'; }, style: { fontSize: '11px' } } }, tooltip: { y: { formatter: function (value) { return Number(value || 0).toFixed(1) + '%'; } } }, colors: [color], fill: { type: 'gradient', gradient: { opacityFrom: .48, opacityTo: .04, stops: [0, 95] } }, stroke: { curve: 'smooth', width: 3.5 }, dataLabels: { enabled: false }, grid: chartGrid() }; }
+      function barOptions(rows, labelKey, valueKey, name, color, horizontal) { return { chart: { type: 'bar', height: 320, toolbar: { show: false }, foreColor: chartMuted() }, series: [{ name: name, data: (rows || []).map(function (item) { return item[valueKey] || 0; }) }], xaxis: { categories: (rows || []).map(function (item) { return compactName(item[labelKey]); }), labels: { rotate: horizontal ? 0 : -38, trim: true, style: { fontSize: '11px' } }, axisBorder: { show: false }, axisTicks: { show: false } }, yaxis: { labels: { formatter: horizontal ? undefined : shortNumber, style: { fontSize: '11px' } } }, tooltip: { y: { formatter: function (value) { return name.indexOf('%') !== -1 ? Number(value || 0).toFixed(1) + '%' : shortNumber(value); } } }, colors: [color], fill: { type: 'gradient', gradient: { opacityFrom: .95, opacityTo: .65, stops: [0, 100] } }, plotOptions: { bar: { horizontal: !!horizontal, borderRadius: 8, borderRadiusApplication: 'end', barHeight: horizontal ? '58%' : undefined, columnWidth: horizontal ? undefined : '58%' } }, dataLabels: { enabled: false }, grid: chartGrid() }; }
+      function renderChart(id, options) { var el = qs(id); if (!el) return; if (state.charts[id]) state.charts[id].destroy(); el.innerHTML = ''; if (typeof ApexCharts !== 'function') { el.innerHTML = '<div class="empty-state">Biblioteca de graficos indisponivel.</div>'; return; } options.theme = { mode: state.theme === 'light' ? 'light' : 'dark' }; state.charts[id] = new ApexCharts(el, options); state.charts[id].render(); }
+      function destroyCharts() { Object.keys(state.charts).forEach(function (id) { state.charts[id].destroy(); }); state.charts = {}; }
+      function renderEmptyCharts(message) { destroyCharts(); ['slaBreakdownChart', 'countByDayChart', 'transporterPerformanceChart', 'trendByDayChart'].forEach(function (id) { setHtml(id, '<div class="empty-state">' + escapeHtml(message) + '</div>'); }); }
+      function renderCharts(data) { safeRenderChart('slaBreakdownChart', function () { return { chart: { type: 'donut', height: 320, toolbar: { show: false } }, labels: (data.charts.slaBreakdown || []).map(function (item) { return item.label; }), series: (data.charts.slaBreakdown || []).map(function (item) { return item.value; }), colors: ['#26d0a8', '#ff6b74'], legend: { position: 'bottom', labels: { colors: chartMuted() } }, dataLabels: { enabled: true }, stroke: { colors: [state.theme === 'light' ? '#ffffff' : '#08111d'] } }; }); safeRenderChart('countByDayChart', function () { return barOptions(data.charts.countByDay || [], 'period', 'totalLoads', 'Cargas', '#4da1ff', false); }); safeRenderChart('transporterPerformanceChart', function () { return barOptions(data.charts.transporterPerformance || [], 'transporterName', 'withinDeadlinePct', '% dentro do prazo', '#ff9a1f', true); }); safeRenderChart('trendByDayChart', function () { return lineOptions(data.charts.trendByDay || [], 'period', 'withinDeadlinePct', '% dentro do prazo', '#26d0a8'); }); }
+      function safeRenderChart(id, optionsBuilder) { try { renderChart(id, optionsBuilder()); } catch (err) { setHtml(id, '<div class="empty-state">Erro ao renderizar grafico.</div>'); } }
+      function scheduleCharts(data) { if (typeof window.requestAnimationFrame === 'function') { window.requestAnimationFrame(function () { renderCharts(data); }); return; } setTimeout(function () { renderCharts(data); }, 0); }
+      function dateTimeFormatter(cell) { var value = cell.getValue(); return value ? new Date(value).toLocaleString() : badge('info', 'Sem data'); }
+      function minuteFormatter(cell) { var row = cell.getRow().getData(); return row.isAnalyzed ? formatDuration(cell.getValue()) : badge('info', 'Pendente'); }
+      function createTable(id, rows, columns) { if (state.tables[id]) { state.tables[id].setColumns(columns); state.tables[id].setData(rows); return; } state.tables[id] = new Tabulator('#' + id, { data: rows, layout: 'fitColumns', height: 420, pagination: true, paginationSize: 8, responsiveLayout: 'collapse', movableColumns: false, columns: columns }); }
+      function renderTable(rows) { qs('tableContext').textContent = rows.length ? rows.length + ' cargas exibidas no recorte atual.' : 'Nenhuma carga encontrada para os filtros aplicados.'; if (!rows.length) { setHtml('cycleTable', '<div class="empty-state">Nenhuma carga encontrada para os filtros aplicados.</div>'); if (state.tables.cycleTable) { state.tables.cycleTable.destroy(); delete state.tables.cycleTable; } return; } setHtml('cycleTable', ''); createTable('cycleTable', rows, [{ title: 'Pedido / Carga', field: 'orderOrLoadNumber', widthGrow: 1.2 }, { title: 'Cliente', field: 'clientName', widthGrow: 1.4 }, { title: 'Data de criacao', field: 'creationDateIso', formatter: dateTimeFormatter, widthGrow: 1.2 }, { title: 'Data de finalizacao', field: 'finalizationDateIso', formatter: dateTimeFormatter, widthGrow: 1.2 }, { title: 'Tempo total do ciclo', field: 'cycleMinutes', hozAlign: 'right', formatter: minuteFormatter }, { title: 'Prazo', field: 'slaLabel', formatter: function (cell) { var row = cell.getRow().getData(); return badge(row.analysisTone, row.slaLabel); } }, { title: 'Status da analise', field: 'analysisStatus', formatter: function (cell) { var row = cell.getRow().getData(); return badge(row.analysisTone, row.analysisStatus); } }, { title: 'Status', field: 'status', formatter: function (cell) { return translateStatus(cell.getValue()); } }]); }
+      function rerender() { if (!state.data) return; renderOverview(state.data); renderAlerts(state.data); }
+      function bindEvents() { qs('themeToggle').addEventListener('click', function () { setTheme(state.theme === 'light' ? 'dark' : 'light'); }); qs('refreshBtn').addEventListener('click', function () { loadData(true); }); qs('applyBtn').addEventListener('click', function () { loadData(false); }); qs('clearBtn').addEventListener('click', function () { qs('dateFrom').value = ''; qs('dateTo').value = ''; qs('transporter').value = ''; qs('organizationDescription').value = ''; qs('status').value = ''; qs('clientKey').value = ''; qs('search').value = ''; loadData(false); }); document.addEventListener('click', function (event) { var pageLink = event.target.closest('[data-page-link]'); if (pageLink) openPage(pageLink.getAttribute('data-page-link')); }); qsa('#sectionNav a[href^="#"]').forEach(function (link) { link.addEventListener('click', function () { qsa('#sectionNav a').forEach(function (el) { el.classList.remove('active'); }); link.classList.add('active'); }); }); }
+      setTheme(state.theme); bindEvents(); loadData(false);
+    </script>
+  </body>
+</html>
